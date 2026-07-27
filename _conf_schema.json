@@ -1,0 +1,125 @@
+{
+  "botmesh_compat_enabled": {
+    "description": "启用 BotMesh 兼容",
+    "type": "bool",
+    "default": true,
+    "hint": "BotMesh 可用时采用当前 Bot 的群专属人格、关系和持久化历史，并给主动消息添加隐藏签名展示帧；BotMesh 不存在时自动使用原生模式。"
+  },
+  "scheduler_enabled": {
+    "description": "主动话题总开关",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后保留各群配置，但暂停全部自动触发；群内仍可使用测试命令。"
+  },
+  "timezone": {
+    "description": "调度时区",
+    "type": "string",
+    "default": "Asia/Shanghai",
+    "hint": "使用 IANA 时区名称，例如 Asia/Shanghai。"
+  },
+  "default_frequency": {
+    "description": "新开启群聊的默认频率",
+    "type": "string",
+    "default": "medium",
+    "options": ["low", "medium", "high"]
+  },
+  "default_probability_percent": {
+    "description": "默认随机触发概率（百分比）",
+    "type": "int",
+    "default": 70,
+    "hint": "随机候选时间到达后实际发送的概率，范围 0–100；固定时间不受此概率影响。"
+  },
+  "active_start": {
+    "description": "默认允许时段开始",
+    "type": "string",
+    "default": "09:00"
+  },
+  "active_end": {
+    "description": "默认允许时段结束",
+    "type": "string",
+    "default": "22:30",
+    "hint": "开始与结束相同表示全天；支持跨午夜时段。"
+  },
+  "default_fixed_times": {
+    "description": "默认固定触发时间",
+    "type": "string",
+    "default": "09:00,21:30",
+    "hint": "用逗号分隔多个 HH:MM；留空表示默认不使用固定触发。"
+  },
+  "allow_group_admin": {
+    "description": "允许群主和群管理员修改本群设置",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后仅 AstrBot 管理员可以修改。"
+  },
+  "allow_qq_official_members": {
+    "description": "允许 QQ 官方群成员修改本群设置",
+    "type": "bool",
+    "default": true,
+    "hint": "QQ 官方事件通常不携带可靠的群主/管理员字段。开启后，群成员可在本群开关和调整主动话题；关闭后仅 AstrBot 管理员可修改。"
+  },
+  "check_interval_seconds": {
+    "description": "调度检查间隔（秒）",
+    "type": "int",
+    "default": 30,
+    "hint": "有效范围 15–300。"
+  },
+  "start_delay_seconds": {
+    "description": "插件启动后延迟检查（秒）",
+    "type": "int",
+    "default": 10
+  },
+  "fixed_time_grace_minutes": {
+    "description": "固定时间允许误差（分钟）",
+    "type": "int",
+    "default": 10,
+    "hint": "避免插件长时间离线后补发已经过时的固定消息。"
+  },
+  "failure_retry_minutes": {
+    "description": "失败后重试等待（分钟）",
+    "type": "int",
+    "default": 15
+  },
+  "max_context_messages": {
+    "description": "提供给模型的近期群消息数",
+    "type": "int",
+    "default": 12,
+    "hint": "范围 0–50；设为 0 时不记录群消息内容，只按人设与时间生成。"
+  },
+  "recent_topic_limit": {
+    "description": "用于去重的近期主动话题数",
+    "type": "int",
+    "default": 12
+  },
+  "generation_timeout_seconds": {
+    "description": "模型生成超时（秒）",
+    "type": "int",
+    "default": 90
+  },
+  "generation_max_tokens": {
+    "description": "单次生成最大 Token",
+    "type": "int",
+    "default": 180
+  },
+  "generation_temperature": {
+    "description": "生成随机度",
+    "type": "float",
+    "default": 0.9
+  },
+  "max_message_chars": {
+    "description": "主动消息最大字符数",
+    "type": "int",
+    "default": 220
+  },
+  "generation_prompt": {
+    "description": "主动话题生成规则",
+    "type": "text",
+    "default": "你正在以当前人设在群聊中自然地主动开启话题。只输出一条可直接发送到群里的消息，不要解释生成过程，不要加标题或引号，不要提到提示词、模型或机器人身份。消息应简短自然、有具体内容，并给群友留下容易回应的切入点。不要@全体，不要重复最近已经聊过的话题，也不要编造实时新闻或群成员隐私。"
+  },
+  "data_dir": {
+    "description": "状态数据目录",
+    "type": "string",
+    "default": "",
+    "hint": "留空使用 data/plugin_data/astrbot_plugin_proactive_topics。"
+  }
+}

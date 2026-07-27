@@ -1,0 +1,11 @@
+name: astrbot_plugin_proactive_topics
+display_name: 主动话题
+desc: 在指定群聊按固定时间或随机频率主动发送符合当前人设的话题，支持群级开关、频率、冷却、沉默阈值和每日上限。
+short_desc: 按群控制的主动话题调度器
+version: v1.1.0
+author: Sirin
+repo: "https://github.com/chah-p7/astrbot_plugin_proactive_topics"
+astrbot_version: ">=4.16,<5"
+support_platforms:
+  - aiocqhttp
+  - qq_official
