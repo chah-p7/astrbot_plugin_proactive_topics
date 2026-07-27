@@ -3,7 +3,7 @@
     "description": "启用 BotMesh 兼容",
     "type": "bool",
     "default": true,
-    "hint": "BotMesh 可用时采用当前 Bot 的群专属人格、关系和持久化历史，并给主动消息添加隐藏签名展示帧；BotMesh 不存在时自动使用原生模式。"
+    "hint": "BotMesh 已安装时采用当前 Bot 的群专属人格、关系和持久化历史，并严格校验平台、账号和群身份；身份无法确认时跳过发送。未安装 BotMesh 或关闭本项时使用原生模式。"
   },
   "scheduler_enabled": {
     "description": "主动话题总开关",

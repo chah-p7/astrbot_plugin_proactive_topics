@@ -176,7 +176,16 @@ class ProactiveTopics(Star):
         raw = str(self.config.get("default_frequency", "medium")).strip().lower()
         return PRESET_ALIASES.get(raw, "medium")
 
-    def _new_group(self, umo: str, group_id: str = "", group_name: str = "") -> dict:
+    def _new_group(
+        self,
+        umo: str,
+        group_id: str = "",
+        group_name: str = "",
+        *,
+        platform_id: str = "",
+        platform_name: str = "",
+        self_id: str = "",
+    ) -> dict:
         preset_name = self._default_preset()
         preset = PRESETS[preset_name]
         start = _normalize_hhmm(str(self.config.get("active_start", "09:00")))
@@ -186,6 +195,9 @@ class ProactiveTopics(Star):
             "umo": umo,
             "group_id": str(group_id),
             "group_name": str(group_name),
+            "platform_id": str(platform_id),
+            "platform_name": str(platform_name),
+            "self_id": str(self_id),
             "frequency": preset_name,
             "min_interval_minutes": preset["min_interval_minutes"],
             "max_interval_minutes": preset["max_interval_minutes"],
@@ -217,6 +229,9 @@ class ProactiveTopics(Star):
         base["umo"] = umo
         base["group_id"] = str(base.get("group_id", ""))
         base["group_name"] = str(base.get("group_name", ""))
+        base["platform_id"] = str(base.get("platform_id", ""))
+        base["platform_name"] = str(base.get("platform_name", ""))
+        base["self_id"] = str(base.get("self_id", ""))
         base["frequency"] = str(base.get("frequency", "medium"))
         base["fixed_times"] = _parse_fixed_times(base.get("fixed_times", []))
         base["recent_messages"] = (
@@ -253,7 +268,7 @@ class ProactiveTopics(Star):
             self.groups = {}
 
     def _write_state_locked(self) -> None:
-        payload = {"version": 1, "groups": self.groups}
+        payload = {"version": 2, "groups": self.groups}
         temp_path = self.state_path.with_suffix(".json.tmp")
         temp_path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
@@ -272,18 +287,88 @@ class ProactiveTopics(Star):
         name = getattr(group, "group_name", None)
         return "" if name in (None, "N/A") else str(name)
 
-    def _ensure_group_locked(self, event: AstrMessageEvent) -> dict:
+    @staticmethod
+    def _event_value(event: AstrMessageEvent, method_name: str) -> str:
+        try:
+            method = getattr(event, method_name)
+            return str(method() or "").strip()
+        except Exception:
+            return ""
+
+    def _event_identity(self, event: AstrMessageEvent) -> dict[str, str]:
+        return {
+            "platform_id": self._event_value(event, "get_platform_id"),
+            "platform_name": self._event_value(event, "get_platform_name"),
+            "self_id": self._event_value(event, "get_self_id"),
+            "group_id": self._event_value(event, "get_group_id"),
+        }
+
+    @staticmethod
+    def _group_identity(group: dict[str, Any]) -> dict[str, str]:
+        return {
+            "platform_id": str(group.get("platform_id", "") or "").strip(),
+            "platform_name": str(group.get("platform_name", "") or "").strip(),
+            "self_id": str(group.get("self_id", "") or "").strip(),
+            "group_id": str(group.get("group_id", "") or "").strip(),
+        }
+
+    def _event_conflicts_with_group(
+        self,
+        group: dict[str, Any],
+        event: AstrMessageEvent,
+    ) -> bool:
+        expected = self._group_identity(group)
+        observed = self._event_identity(event)
+        if (
+            expected["group_id"]
+            and observed["group_id"]
+            and expected["group_id"] != observed["group_id"]
+        ):
+            return True
+        identity_pairs = [
+            (expected[key], observed[key])
+            for key in ("platform_id", "self_id")
+            if expected[key] and observed[key]
+        ]
+        if any(saved == current for saved, current in identity_pairs):
+            return False
+        return any(saved != current for saved, current in identity_pairs)
+
+    def _remember_group_identity_locked(
+        self,
+        group: dict[str, Any],
+        event: AstrMessageEvent,
+    ) -> None:
+        identity = self._event_identity(event)
+        for key, value in identity.items():
+            if value:
+                group[key] = value
+        self._dirty = True
+
+    def _ensure_group_locked(self, event: AstrMessageEvent) -> dict | None:
         umo = event.unified_msg_origin
         group = self.groups.get(umo)
         if group is None:
+            identity = self._event_identity(event)
             group = self._new_group(
                 umo,
-                group_id=event.get_group_id(),
+                group_id=identity["group_id"],
                 group_name=self._event_group_name(event),
+                platform_id=identity["platform_id"],
+                platform_name=identity["platform_name"],
+                self_id=identity["self_id"],
             )
             self.groups[umo] = group
         else:
-            group["group_id"] = str(event.get_group_id() or group.get("group_id", ""))
+            if self._event_conflicts_with_group(group, event):
+                logger.error(
+                    "[主动话题] 拒绝用另一 Bot 的事件接管群状态：umo=%s expected=%s observed=%s",
+                    umo,
+                    self._group_identity(group),
+                    self._event_identity(event),
+                )
+                return None
+            self._remember_group_identity_locked(group, event)
             group_name = self._event_group_name(event)
             if group_name:
                 group["group_name"] = group_name
@@ -356,6 +441,15 @@ class ProactiveTopics(Star):
             group = self.groups.get(event.unified_msg_origin)
             if not group or not group.get("enabled"):
                 return
+            if self._event_conflicts_with_group(group, event):
+                logger.warning(
+                    "[主动话题] 已忽略身份不匹配的群事件：umo=%s expected=%s observed=%s",
+                    event.unified_msg_origin,
+                    self._group_identity(group),
+                    self._event_identity(event),
+                )
+                return
+            self._remember_group_identity_locked(group, event)
             self._latest_events[event.unified_msg_origin] = event
             group["last_activity_at"] = time.time()
             sender = (event.get_sender_name() or event.get_sender_id() or "群友").strip()
@@ -390,7 +484,15 @@ class ProactiveTopics(Star):
 
         async with self._state_lock:
             group = self._ensure_group_locked(event)
-            self._latest_events[event.unified_msg_origin] = event
+            if group is not None:
+                self._latest_events[event.unified_msg_origin] = event
+
+        if group is None:
+            yield event.plain_result(
+                "当前事件的 Bot 身份与本群已保存的主动话题身份不一致，已拒绝操作；"
+                "请在原 Bot 上管理该群。"
+            )
+            return
 
         if action in {"帮助", "help", "?"}:
             yield event.plain_result(self._help_text())
@@ -545,6 +647,9 @@ class ProactiveTopics(Star):
                     event.unified_msg_origin,
                     event.get_group_id(),
                     self._event_group_name(event),
+                    platform_id=self._event_value(event, "get_platform_id"),
+                    platform_name=self._event_value(event, "get_platform_name"),
+                    self_id=self._event_value(event, "get_self_id"),
                 )
                 fresh["enabled"] = enabled
                 if enabled:
@@ -752,6 +857,9 @@ class ProactiveTopics(Star):
             if umo in self._inflight:
                 return False, "本群已有一条主动消息正在生成"
             if event is not None:
+                if self._event_conflicts_with_group(group, event):
+                    return False, "当前事件的 Bot 身份与本群保存身份不一致"
+                self._remember_group_identity_locked(group, event)
                 self._latest_events[umo] = event
             self._inflight.add(umo)
             snapshot = copy.deepcopy(group)
@@ -817,14 +925,34 @@ class ProactiveTopics(Star):
         *,
         event: AstrMessageEvent | None = None,
     ) -> tuple[bool, str]:
+        identity = self._group_identity(group)
+        umo_platform_id = str(umo or "").split(":", 1)[0].strip()
+        if (
+            event is None
+            and identity["platform_id"]
+            and umo_platform_id != identity["platform_id"]
+        ):
+            return (
+                False,
+                "重启后尚未收到该 Bot 的新群事件，无法确认主动发送路由，已安全跳过",
+            )
+
         try:
             provider_id = await self.context.get_current_chat_provider_id(umo)
         except Exception as exc:
             return False, f"当前会话没有可用的文本模型：{exc}"
 
-        botmesh_context = await self._get_botmesh_context(umo, event)
+        botmesh_context = await self._get_botmesh_context(umo, event, identity)
         if botmesh_context.get("enabled"):
+            mismatch = self._botmesh_identity_mismatch(identity, botmesh_context)
+            if mismatch:
+                return False, f"BotMesh 身份校验失败（{mismatch}），已拒绝发送"
             persona_prompt = str(botmesh_context.get("persona_prompt", "") or "")
+        elif botmesh_context.get("available") or botmesh_context.get(
+            "integration_present"
+        ):
+            error = str(botmesh_context.get("error", "identity_unresolved") or "")
+            return False, f"BotMesh 无法确认当前 Bot 人格（{error}），已拒绝发送"
         else:
             persona_prompt = await self._resolve_persona_prompt(umo)
         system_prompt = self._build_system_prompt(
@@ -861,7 +989,7 @@ class ProactiveTopics(Star):
             return False, f"模型生成失败：{exc}"
 
         try:
-            outbound_text = self._wrap_botmesh_message(umo, text, event)
+            outbound_text = self._wrap_botmesh_message(umo, text, event, identity)
             message_chain = MessageChain().message(outbound_text)
             send_event = event or self._latest_events.get(umo)
             if send_event is not None:
@@ -915,38 +1043,102 @@ class ProactiveTopics(Star):
         self,
         umo: str,
         event: AstrMessageEvent | None,
+        identity: dict[str, str],
     ) -> dict[str, Any]:
         integration = self._botmesh_module()
         if integration is None:
-            return {}
+            return {"available": False, "enabled": False}
         try:
-            result = await integration.get_proactive_topics_context(
-                umo=umo,
-                event=event,
-            )
-            return dict(result) if isinstance(result, dict) else {}
+            legacy_api = False
+            try:
+                result = await integration.get_proactive_topics_context(
+                    umo=umo,
+                    event=event,
+                    identity=identity,
+                )
+            except TypeError as exc:
+                if "identity" not in str(exc):
+                    raise
+                legacy_api = True
+                result = await integration.get_proactive_topics_context(
+                    umo=umo,
+                    event=event,
+                )
+            context = dict(result) if isinstance(result, dict) else {}
+            if not context:
+                return {
+                    "available": True,
+                    "enabled": False,
+                    "integration_present": True,
+                    "error": "empty_context",
+                }
+            context["integration_present"] = True
+            if legacy_api and event is not None and context.get("enabled"):
+                context["identity_verified_by_event"] = True
+            elif legacy_api and event is None:
+                return {
+                    "available": True,
+                    "enabled": False,
+                    "error": "identity_api_unsupported",
+                }
+            return context
         except Exception as exc:
-            logger.warning("[主动话题] 读取 BotMesh 上下文失败，已使用原生模式：%s", exc)
-            return {}
+            logger.warning("[主动话题] 读取 BotMesh 上下文失败，已拒绝本次发送：%s", exc)
+            return {
+                "available": True,
+                "enabled": False,
+                "integration_present": True,
+                "error": "integration_failure",
+            }
+
+    @staticmethod
+    def _botmesh_identity_mismatch(
+        expected: dict[str, str],
+        context: dict[str, Any],
+    ) -> str:
+        if context.get("identity_verified_by_event"):
+            return ""
+        comparisons = (
+            ("platform_id", "platform_id"),
+            ("self_id", "account_id"),
+            ("group_id", "raw_group_id"),
+        )
+        for expected_key, actual_key in comparisons:
+            expected_value = str(expected.get(expected_key, "") or "").strip()
+            if not expected_value:
+                continue
+            actual_value = str(context.get(actual_key, "") or "").strip()
+            if actual_value != expected_value:
+                return f"{expected_key}={expected_value!r} != {actual_key}={actual_value!r}"
+        return ""
 
     def _wrap_botmesh_message(
         self,
         umo: str,
         text: str,
         event: AstrMessageEvent | None,
+        identity: dict[str, str],
     ) -> str:
         integration = self._botmesh_module()
         if integration is None:
             return text
         try:
-            return str(
-                integration.wrap_proactive_topics_message(
+            try:
+                wrapped = integration.wrap_proactive_topics_message(
+                    umo=umo,
+                    content=text,
+                    event=event,
+                    identity=identity,
+                )
+            except TypeError as exc:
+                if "identity" not in str(exc):
+                    raise
+                wrapped = integration.wrap_proactive_topics_message(
                     umo=umo,
                     content=text,
                     event=event,
                 )
-                or text
-            )
+            return str(wrapped or text)
         except Exception as exc:
             logger.warning("[主动话题] 添加 BotMesh 展示帧失败，已发送普通正文：%s", exc)
             return text
