@@ -3,7 +3,7 @@
     "description": "启用 BotMesh 兼容",
     "type": "bool",
     "default": true,
-    "hint": "BotMesh 已安装时采用当前 Bot 的群专属人格、关系和持久化历史，并严格校验平台、账号和群身份；身份无法确认时跳过发送。未安装 BotMesh 或关闭本项时使用原生模式。"
+    "hint": "BotMesh 已安装时只调用一次 BotMesh 派发接口；Persona、关系称呼、生成、签名和实际发送均由 BotMesh 完成，并严格校验平台、账号和群身份。身份无法确认时跳过发送。未安装 BotMesh 或关闭本项时使用原生模式。"
   },
   "scheduler_enabled": {
     "description": "主动话题总开关",
@@ -79,6 +79,12 @@
     "description": "失败后重试等待（分钟）",
     "type": "int",
     "default": 15
+  },
+  "max_concurrent_generations": {
+    "description": "最大并发生成数",
+    "type": "int",
+    "default": 2,
+    "hint": "多个群同时到期时最多并行生成的消息数，范围 1–10；用于避免一个慢模型阻塞所有群。"
   },
   "max_context_messages": {
     "description": "提供给模型的近期群消息数",
