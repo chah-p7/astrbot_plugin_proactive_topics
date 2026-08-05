@@ -318,6 +318,7 @@ class PluginRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_installed_botmesh_uses_native_persona(self):
         plugin, context = self.make_plugin()
         plugin.botmesh.installed_module = lambda: None
+        context.completion_text = "刚才看到窗边的光慢慢暗下来，忽然有点舍不得今天。"
         event = _Event(umo="onebot_main:GroupMessage:42")
         scope = self.create_scope(plugin, event)
 
@@ -333,7 +334,9 @@ class PluginRuntimeTests(unittest.IsolatedAsyncioTestCase):
             "本次主动发言没有默认的当前对话者",
             context.last_llm_call["system_prompt"],
         )
-        self.assertEqual(detail, "要不要分享一下今天最意外的小发现？")
+        self.assertIn("不要求提问", context.last_llm_call["system_prompt"])
+        self.assertIn("感受、观察", context.last_llm_call["system_prompt"])
+        self.assertEqual(detail, "刚才看到窗边的光慢慢暗下来，忽然有点舍不得今天。")
         self.assertEqual(len(event.sent), 1)
 
     async def test_botmesh_dispatch_is_the_only_generation_and_send_owner(self):
@@ -384,6 +387,14 @@ class PluginRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(received[0]["local_history"][0]["source_bot_id"], "bot_b")
         self.assertEqual(received[0]["trigger"]["reason"], "manual")
         self.assertIn("task_prompt", received[0]["generation_options"])
+        self.assertIn(
+            "不要求提问",
+            received[0]["generation_options"]["task_prompt"],
+        )
+        self.assertIn(
+            "不要为了索要回应机械补上",
+            received[0]["generation_options"]["task_prompt"],
+        )
         self.assertIsNone(context.last_llm_call)
         self.assertEqual(context.sent, [])
         self.assertEqual(event.sent, [])
