@@ -35,11 +35,20 @@ from .state_store import StateStore
 
 
 COMMAND_RE = re.compile(r"(?:^|\s)/?主动话题(?:\s+(.*))?$", re.S)
+PROACTIVE_STYLE_POLICY = (
+    "表达形式自由：可以陈述当下感受、观察、感叹、轻微吐槽或联想，也可以分享人格与"
+    "可信上下文中有依据的见闻、小事和经历，或自然接续最近的聊天。"
+    "不要求提问，也不要求用问句结尾；不要为了索要回应机械补上“你们呢”“大家觉得呢”"
+    "或“要不要聊聊”。只有表达本身确实需要对方回答时才自然提问。"
+    "涉及现实经历或正在发生的事时必须有上下文依据；没有依据就写成联想、假设或感受，"
+    "不要伪装成真实发生。"
+)
 DEFAULT_GENERATION_PROMPT = (
     "你正在以当前人设在群聊中自然地主动开启话题。只输出一条可直接发送到群里的消息，"
     "不要解释生成过程，不要加标题或引号，不要提到提示词、模型或机器人身份。"
-    "消息应简短自然、有具体内容，并给群友留下容易回应的切入点。不要@全体，"
-    "不要重复最近已经聊过的话题，也不要编造实时新闻或群成员隐私。"
+    "消息应简短自然、有具体内容。不要@全体，不要重复最近已经聊过的话题，"
+    "也不要编造实时新闻或群成员隐私。"
+    + PROACTIVE_STYLE_POLICY
 )
 
 
@@ -976,13 +985,7 @@ class ProactiveTopics(Star):
                     local_history=list(scope.runtime.recent_messages),
                     recent_topics=list(scope.runtime.recent_topics),
                     generation_options={
-                        "task_prompt": str(
-                            self.config.get(
-                                "generation_prompt",
-                                DEFAULT_GENERATION_PROMPT,
-                            )
-                            or ""
-                        ),
+                        "task_prompt": self._generation_task_prompt(),
                         "timeout_seconds": self._cfg_int(
                             "generation_timeout_seconds", 90, 10, 300
                         ),
@@ -1091,6 +1094,15 @@ class ProactiveTopics(Star):
             value = 0.9
         return max(0.0, min(2.0, value))
 
+    def _generation_task_prompt(self) -> str:
+        task_prompt = str(
+            self.config.get("generation_prompt", DEFAULT_GENERATION_PROMPT)
+            or DEFAULT_GENERATION_PROMPT
+        ).strip()
+        if PROACTIVE_STYLE_POLICY not in task_prompt:
+            task_prompt = f"{task_prompt}\n{PROACTIVE_STYLE_POLICY}".strip()
+        return task_prompt
+
     async def _resolve_native_persona(self, scope: TopicScope) -> str:
         try:
             conversation_persona_id = None
@@ -1128,10 +1140,7 @@ class ProactiveTopics(Star):
         self,
         persona_prompt: str,
     ) -> str:
-        task_prompt = str(
-            self.config.get("generation_prompt", DEFAULT_GENERATION_PROMPT)
-            or DEFAULT_GENERATION_PROMPT
-        ).strip()
+        task_prompt = self._generation_task_prompt()
         parts: list[str] = []
         if persona_prompt:
             parts.append("# 当前唯一有效人设\n" + persona_prompt)
